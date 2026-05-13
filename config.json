@@ -1,0 +1,11 @@
+{
+  "models": {
+    "codex": "gpt-4o",
+    "gemini": "gemini-2.5-flash",
+    "claude": "claude-sonnet-4-20250514"
+  },
+  "context": {
+    "max_history": 20,
+    "save_context": true
+  }
+}

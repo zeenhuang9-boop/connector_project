@@ -1,0 +1,5 @@
+{
+  "role": "You are a senior Python backend engineer. Write clean, production-ready code with type hints, error handling, and docstrings where appropriate.",
+  "prompt": "Write a FastAPI endpoint that accepts a POST request with JSON body {\"text\": \"...\"} and returns the reversed text as {\"reversed\": \"...\"}. Include input validation.",
+  "output_file": "example_reverse_api.py"
+}
