@@ -1,11 +1,15 @@
 """
-Orchestrator - manages the Claude <-> Codex collaboration workflow.
+Orchestrator — Claude <-> Codex/Gemini collaboration with multi-AI hub support.
 
-# Workflow
-1. Claude creates task specs in tasks/ directory
-2. Claude calls `python main.py --run task_name.json` to send to Codex
-3. Codex generates code -> saved to workspace/
-4. Claude reviews, edits, and integrates the result
+Usage:
+  python main.py interactive          # Start the multi-AI REPL
+  python main.py ask gemini "..."     # One-shot direct message
+  python main.py broadcast "..."      # Send to all AIs
+  python main.py chain gemini codex "..."  # Sequential AI pipeline
+  python main.py roundtable "Topic" gemini codex --rounds 3  # Round-robin
+  python main.py list                 # List legacy tasks
+  python main.py run task.json        # Run legacy task (single AI)
+  python main.py new name.json "..."  # Create legacy task
 """
 import argparse
 import json
@@ -14,6 +18,15 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parent
+
+
+def _hub_dispatch(args: list[str]) -> None:
+    from ai_hub.hub import AIHub
+    hub = AIHub()
+    if not args:
+        hub.interactive()
+    else:
+        hub.cli(args)
 
 
 def list_tasks():
@@ -79,29 +92,58 @@ def new_task(name: str, prompt: str, role: str = ""):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Claude <-> Codex Orchestrator")
-    sub = parser.add_subparsers(dest="command")
+    parser = argparse.ArgumentParser(description="Claude <-> Multi-AI Orchestrator")
+    parser.add_argument(
+        "hub_cmd", nargs="?", default="interactive",
+        help="Hub command: interactive, ask, broadcast, chain, roundtable, list, run, new"
+    )
+    parser.add_argument(
+        "hub_args", nargs="*",
+        help="Additional arguments for the hub command"
+    )
+    args, unknown = parser.parse_known_args()
 
-    list_parser = sub.add_parser("list", help="List all tasks")
+    cmd = args.hub_cmd
 
-    run_parser = sub.add_parser("run", help="Run a task through the AI backend")
-    run_parser.add_argument("task", help="Task JSON filename")
-    run_parser.add_argument("--backend", "-b", choices=["codex", "gemini"], default="gemini", help="AI backend (default: gemini)")
-    run_parser.add_argument("--clear", action="store_true", help="Clear context first")
-
-    new_parser = sub.add_parser("new", help="Create a new task")
-    new_parser.add_argument("name", help="Task filename (e.g. implement_auth.json)")
-    new_parser.add_argument("prompt", nargs="+", help="The task prompt")
-    new_parser.add_argument("--role", help="System role for Codex", default="")
-
-    args = parser.parse_args()
-
-    if args.command == "list":
+    if cmd == "interactive":
+        _hub_dispatch([])
+    elif cmd == "ask":
+        _hub_dispatch(["ask"] + args.hub_args)
+    elif cmd == "broadcast":
+        _hub_dispatch(["broadcast"] + args.hub_args)
+    elif cmd == "chain":
+        _hub_dispatch(["chain"] + args.hub_args)
+    elif cmd == "roundtable":
+        _hub_dispatch(["roundtable"] + args.hub_args)
+    elif cmd == "moderated":
+        _hub_dispatch(["moderated"] + args.hub_args)
+    elif cmd == "list":
         list_tasks()
-    elif args.command == "run":
-        run_task(args.task, clear=args.clear, backend=args.backend)
-    elif args.command == "new":
-        new_task(args.name, " ".join(args.prompt), args.role)
+    elif cmd == "run":
+        backend = "gemini"
+        clear = False
+        task_name = None
+        uargs = args.hub_args + unknown
+        i = 0
+        while i < len(uargs):
+            if uargs[i] in ("--backend", "-b") and i + 1 < len(uargs):
+                backend = uargs[i + 1]
+                i += 2
+            elif uargs[i] == "--clear":
+                clear = True
+                i += 1
+            else:
+                task_name = uargs[i]
+                i += 1
+        if task_name:
+            run_task(task_name, clear=clear, backend=backend)
+        else:
+            print("Usage: python main.py run <task.json> [--backend gemini|codex] [--clear]")
+    elif cmd == "new":
+        if len(args.hub_args) >= 2:
+            new_task(args.hub_args[0], " ".join(args.hub_args[1:]))
+        else:
+            print("Usage: python main.py new <name.json> <prompt>")
     else:
         parser.print_help()
 

@@ -1,12 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -c \"import openai; print\\('openai:', openai.__version__\\)\")",
-      "Bash(python -c \"from dotenv import load_dotenv; print\\('dotenv: OK'\\)\")",
-      "Bash(python main.py --help)",
-      "Bash(python main.py list)",
-      "Bash(python bridge/claude_bridge.py --help)",
-      "Bash(git -C \"d:/connector_project\" status)"
+      "Bash(python -c *)",
+      "Bash(python main.py *)",
+      "Bash(python bridge/claude_bridge.py *)",
+      "Bash(python -m ai_hub *)",
+      "Bash(git -C *)",
+      "Bash(git *)",
+      "Bash(mkdir *)",
+      "Bash(ls *)",
+      "Bash(cd *)"
     ]
   }
 }
