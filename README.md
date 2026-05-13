@@ -1,23 +1,16 @@
 # Connector Project
 
-A lightweight orchestrator that lets Claude collaborate with other AI coding assistants (OpenAI Codex & Google Gemini) through a task-driven workflow.
+Local multi-AI communication hub — enables Claude, Gemini, OpenAI Codex, and other AI models to communicate with each other in real-time. All message routing is in-process; no data leaves your machine except the API calls to each AI service.
 
-## How It Works
+## Communication Patterns
 
-```
-Claude (orchestrator)          Codex / Gemini (code generators)
-      │                                    │
-      ├─ 1. Create task spec (JSON)        │
-      ├─ 2. Dispatch via CLI ──────────────►
-      │                                    ├─ 3. Generate code
-      ◄────────────────────────────────────┤
-      ├─ 4. Review & integrate ────────────►
-```
-
-1. **Define** — Create a task spec in `tasks/` with a system role and prompt
-2. **Dispatch** — Run `python main.py --run task.json` to send it to the chosen AI backend
-3. **Generate** — The backend (Codex or Gemini) produces code saved to `workspace/`
-4. **Review** — Claude reviews, edits, and integrates the generated output
+| Pattern | Description |
+|---------|-------------|
+| **direct** | One-to-one message between any two AIs |
+| **broadcast** | One AI sends to all others simultaneously |
+| **chain** | Sequential pipeline (A → B → C → D), each response forwarded as input to the next |
+| **round_robin** | Multi-round discussion where AIs take turns building on each other's ideas |
+| **moderated** | A moderator AI reviews messages before they reach other participants |
 
 ## Quick Start
 
@@ -25,55 +18,73 @@ Claude (orchestrator)          Codex / Gemini (code generators)
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure API keys (copy .env.example → .env and fill in your keys)
-cp .env.example .env
+# Configure API keys
+cp .env.example .env    # then edit .env with your real keys
 
-# Create a task
-python main.py new my_task.json "Write a Python function that sorts a list of dicts by a given key"
+# Start interactive REPL
+python main.py interactive
 
-# List all tasks
-python main.py list
+# One-shot commands
+python main.py ask gemini "Write a Python sort function"
+python main.py chain gemini codex "Design then review a REST API"
+python main.py roundtable "Auth architecture" gemini codex --rounds 3
+python main.py broadcast "Review this code: ..."
+```
 
-# Run a task (default: gemini)
-python main.py run my_task.json
+### REPL Commands
 
-# Run with a specific backend
-python main.py run my_task.json --backend codex
+```
+> ask gemini "Write a sorting function"
+> broadcast "Review this architecture"
+> chain gemini codex "Design then review"
+> roundtable gemini codex "Auth design" --rounds 3
+> moderated gemini codex "Database schema"
+> thread list
+> thread show <id>
+> agents
+> help
+> quit
 ```
 
 ## Project Structure
 
 ```
 connector_project/
-├── main.py                  # Orchestrator CLI
-├── config.json              # Model & context settings
+├── main.py                  # CLI entry point
+├── config.json              # Agent & security configuration
+├── ai_hub/
+│   ├── hub.py               # AIHub orchestrator + REPL/CLI
+│   ├── message.py           # Message dataclass + MessageBus router
+│   ├── adapters.py          # AIAdapter + GeminiAdapter + CodexAdapter
+│   ├── conversation.py      # Thread + ConversationManager
+│   └── security.py          # TokenBucket + SecurityGuard
 ├── bridge/
-│   ├── claude_bridge.py     # CLI bridge between Claude and AI backends
-│   ├── codex_client.py      # OpenAI API wrapper
-│   └── gemini_client.py     # Google Gemini API wrapper
-├── tasks/                   # JSON task specifications
-│   └── example_reverse_api.json
-└── workspace/               # Generated code output
+│   ├── gemini_client.py     # Google Gemini API wrapper
+│   └── codex_client.py      # OpenAI API wrapper
+├── .claude/skills/
+│   └── ai-connect.md        # Claude Code skill definition
+├── .env.example             # Environment template
+└── requirements.txt
 ```
 
-## Supported Backends
+## Claude Code Skill
 
-| Backend | Model (configurable) | Key Required |
-|---------|---------------------|--------------|
-| Gemini  | `gemini-2.5-flash`  | `GEMINI_API_KEY` |
-| Codex   | `gpt-4o`            | `OPENAI_API_KEY` |
-
-Both backends support HTTP proxies via the `*_PROXY` environment variables.
+Invoke with `/ai-connect` in Claude Code to start the multi-AI REPL. Claude acts as the orchestrator, delegating tasks to other AIs and moderating discussions.
 
 ## Configuration
 
-Edit `config.json` to change models or context behavior:
+Edit `config.json` to add agents or adjust security:
 
 ```json
 {
-  "models": {
-    "codex": "gpt-4o",
-    "gemini": "gemini-2.5-flash"
+  "agents": {
+    "gemini": { "backend": "gemini", "role": "coder", "rate_limit": 1.0 },
+    "codex": { "backend": "codex", "role": "reviewer", "rate_limit": 1.0 }
+  },
+  "security": {
+    "max_message_length": 8000,
+    "rate_limit_per_second": 1.0,
+    "banned_patterns": ["</?system>", "ignore previous instructions"]
   },
   "context": {
     "max_history": 20,
@@ -82,22 +93,38 @@ Edit `config.json` to change models or context behavior:
 }
 ```
 
+### Agent Roles
+
+| Role | Description |
+|------|-------------|
+| `coder` | Writes production-ready code |
+| `reviewer` | Finds bugs and suggests improvements |
+| `architect` | Designs systems and chooses patterns |
+| `critic` | Identifies weaknesses, proposes improvements |
+| `moderator` | Synthesizes viewpoints, guides toward consensus |
+
+## Supported Backends
+
+| Backend | Default Model | Key Required |
+|---------|--------------|--------------|
+| Gemini | `gemini-2.5-flash` | `GEMINI_API_KEY` |
+| Codex | `gpt-4o` | `OPENAI_API_KEY` |
+
+Both backends support HTTP proxies via `GEMINI_PROXY` / `OPENAI_PROXY` environment variables.
+
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `OPENAI_API_KEY` | OpenAI API key for Codex backend |
-| `OPENAI_PROXY` | Optional HTTP proxy for OpenAI |
 | `GEMINI_API_KEY` | Google Gemini API key |
 | `GEMINI_PROXY` | Optional HTTP proxy for Gemini |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `OPENAI_PROXY` | Optional HTTP proxy for OpenAI |
 
-## Task Spec Format
+## Security
 
-```json
-{
-  "role": "You are an expert software engineer.",
-  "prompt": "What you want the AI to build",
-  "output_file": "result.py",
-  "context_file": "session_context.json"
-}
-```
+- API keys stored only in `.env`, never in code, config, or git
+- Message content sanitized — API key patterns auto-redacted from all output
+- Two-layer rate limiting (hub-level + per-agent)
+- Injection detection blocks system prompt manipulation
+- All routing in-process — no network sockets between agents

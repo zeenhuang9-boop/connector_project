@@ -1,23 +1,16 @@
 # Connector Project
 
-轻量级编排器，通过任务驱动的工作流让 Claude 与 OpenAI Codex、Google Gemini 等 AI 编程助手协作。
+本地多 AI 通信中心——让 Claude、Gemini、OpenAI Codex 及其他 AI 模型能够相互实时交流。所有消息路由均为进程内处理，除各 AI 服务的 API 调用外，数据不会离开你的本机。
 
-## 工作流程
+## 通信模式
 
-```
-Claude（编排者）               Codex / Gemini（代码生成器）
-      │                                    │
-      ├─ 1. 创建任务规格（JSON）              │
-      ├─ 2. 通过 CLI 分发 ──────────────────►
-      │                                    ├─ 3. 生成代码
-      ◄────────────────────────────────────┤
-      ├─ 4. 审阅并集成 ─────────────────────►
-```
-
-1. **定义任务** — 在 `tasks/` 目录下创建包含系统角色和提示词的任务规格文件
-2. **分发生成** — 执行 `python main.py --run task.json` 将任务发送给指定的 AI 后端
-3. **输出代码** — 后端（Codex 或 Gemini）生成的代码保存到 `workspace/`
-4. **审阅集成** — Claude 对生成结果进行审阅、修改并集成
+| 模式 | 说明 |
+|---------|-------------|
+| **direct** | 两个 AI 之间一对一消息传递 |
+| **broadcast** | 一个 AI 同时向所有其他 AI 发送消息 |
+| **chain** | 顺序流水线（A → B → C → D），每个回应作为下个 AI 的输入 |
+| **round_robin** | 多轮讨论，AI 轮流在彼此想法的基础上构建 |
+| **moderated** | 审核 AI 先审阅消息再转给其他参与者 |
 
 ## 快速开始
 
@@ -25,55 +18,73 @@ Claude（编排者）               Codex / Gemini（代码生成器）
 # 安装依赖
 pip install -r requirements.txt
 
-# 配置 API 密钥（复制 .env.example 为 .env，填入你的密钥）
-cp .env.example .env
+# 配置 API 密钥
+cp .env.example .env    # 然后编辑 .env，填入真实密钥
 
-# 创建任务
-python main.py new my_task.json "写一个按指定 key 对字典列表排序的 Python 函数"
+# 启动交互式 REPL
+python main.py interactive
 
-# 查看所有任务
-python main.py list
+# 一次性命令
+python main.py ask gemini "写一个 Python 排序函数"
+python main.py chain gemini codex "设计并审查一个 REST API"
+python main.py roundtable "认证架构设计" gemini codex --rounds 3
+python main.py broadcast "审查这段代码：..."
+```
 
-# 运行任务（默认使用 gemini）
-python main.py run my_task.json
+### REPL 命令
 
-# 指定后端运行
-python main.py run my_task.json --backend codex
+```
+> ask gemini "写一个排序函数"
+> broadcast "审查这个架构"
+> chain gemini codex "设计然后审查"
+> roundtable gemini codex "认证设计" --rounds 3
+> moderated gemini codex "数据库架构设计"
+> thread list
+> thread show <id>
+> agents
+> help
+> quit
 ```
 
 ## 项目结构
 
 ```
 connector_project/
-├── main.py                  # 编排器 CLI 入口
-├── config.json              # 模型与上下文配置
+├── main.py                  # CLI 入口
+├── config.json              # Agent 与安全配置
+├── ai_hub/
+│   ├── hub.py               # AIHub 编排器 + REPL/CLI
+│   ├── message.py           # Message 数据类 + MessageBus 路由器
+│   ├── adapters.py          # AIAdapter + GeminiAdapter + CodexAdapter
+│   ├── conversation.py      # Thread + ConversationManager
+│   └── security.py          # TokenBucket + SecurityGuard
 ├── bridge/
-│   ├── claude_bridge.py     # Claude 与 AI 后端之间的 CLI 桥接
-│   ├── codex_client.py      # OpenAI API 封装
-│   └── gemini_client.py     # Google Gemini API 封装
-├── tasks/                   # JSON 任务规格文件
-│   └── example_reverse_api.json
-└── workspace/               # 生成的代码输出
+│   ├── gemini_client.py     # Google Gemini API 封装
+│   └── codex_client.py      # OpenAI API 封装
+├── .claude/skills/
+│   └── ai-connect.md        # Claude Code skill 定义
+├── .env.example             # 环境变量模板
+└── requirements.txt
 ```
 
-## 支持的后端
+## Claude Code Skill
 
-| 后端    | 模型（可配置）       | 所需密钥           |
-|---------|---------------------|-------------------|
-| Gemini  | `gemini-2.5-flash`  | `GEMINI_API_KEY`  |
-| Codex   | `gpt-4o`            | `OPENAI_API_KEY`  |
-
-两个后端均支持通过 `*_PROXY` 环境变量配置 HTTP 代理。
+在 Claude Code 中输入 `/ai-connect` 即可启动多 AI REPL。Claude 作为编排者，将任务分派给其他 AI 并主持讨论。
 
 ## 配置
 
-编辑 `config.json` 可切换模型或调整上下文行为：
+编辑 `config.json` 来添加 agent 或调整安全设置：
 
 ```json
 {
-  "models": {
-    "codex": "gpt-4o",
-    "gemini": "gemini-2.5-flash"
+  "agents": {
+    "gemini": { "backend": "gemini", "role": "coder", "rate_limit": 1.0 },
+    "codex": { "backend": "codex", "role": "reviewer", "rate_limit": 1.0 }
+  },
+  "security": {
+    "max_message_length": 8000,
+    "rate_limit_per_second": 1.0,
+    "banned_patterns": ["</?system>", "ignore previous instructions"]
   },
   "context": {
     "max_history": 20,
@@ -82,22 +93,38 @@ connector_project/
 }
 ```
 
+### Agent 角色
+
+| 角色 | 说明 |
+|------|-------------|
+| `coder` | 编写生产级代码 |
+| `reviewer` | 发现 bug 并提出改进建议 |
+| `architect` | 设计系统并选择模式 |
+| `critic` | 识别弱点，提出具体改进方案 |
+| `moderator` | 综合多方观点，引导达成共识 |
+
+## 支持的后端
+
+| 后端 | 默认模型 | 所需密钥 |
+|---------|--------------|--------------|
+| Gemini | `gemini-2.5-flash` | `GEMINI_API_KEY` |
+| Codex | `gpt-4o` | `OPENAI_API_KEY` |
+
+两个后端均支持通过 `GEMINI_PROXY` / `OPENAI_PROXY` 环境变量配置 HTTP 代理。
+
 ## 环境变量
 
-| 变量              | 说明                         |
-|------------------|-----------------------------|
-| `OPENAI_API_KEY` | OpenAI API 密钥（Codex 后端） |
-| `OPENAI_PROXY`   | OpenAI 的 HTTP 代理（可选）   |
-| `GEMINI_API_KEY` | Google Gemini API 密钥       |
-| `GEMINI_PROXY`   | Gemini 的 HTTP 代理（可选）   |
+| 变量 | 说明 |
+|----------|-------------|
+| `GEMINI_API_KEY` | Google Gemini API 密钥 |
+| `GEMINI_PROXY` | Gemini 的 HTTP 代理（可选） |
+| `OPENAI_API_KEY` | OpenAI API 密钥 |
+| `OPENAI_PROXY` | OpenAI 的 HTTP 代理（可选） |
 
-## 任务规格格式
+## 安全
 
-```json
-{
-  "role": "你是一位资深软件工程师。",
-  "prompt": "你希望 AI 构建的内容",
-  "output_file": "result.py",
-  "context_file": "session_context.json"
-}
-```
+- API 密钥仅存储在 `.env` 中，绝不会出现在代码、配置或 git 中
+- 消息内容自动净化——所有输出中的 API 密钥模式会被自动遮蔽
+- 双层速率限制（hub 级别 + 各 agent 级别）
+- 注入检测阻止系统提示词篡改
+- 所有路由均为进程内处理——agent 之间不使用网络套接字
